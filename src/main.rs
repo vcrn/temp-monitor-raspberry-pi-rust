@@ -24,8 +24,8 @@ fn take_input() -> u64 {
         .expect("Failed to read from stdin");
 
     let trimmed = input_text.trim();
+    // Check if it's an integer and positive. Else returns 2.
     match trimmed.parse::<u64>() {
-        // Check if it's an integer and positive. Else return 2.
         Ok(i) if i > 0 => i, // If positive integer.
         _ => 2,
     }
