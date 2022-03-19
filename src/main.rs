@@ -4,13 +4,15 @@
 use std::io::Write;
 use std::process::Command;
 use std::{io, str, thread, time};
+use rounded_div::RoundedDiv;
 
 fn main() {
     println!("========================================================================");
     println!("This CLI app monitors the GPU and CPU temperatures of a Raspberry Pi.");
+    print_cpu_load(2, 0);
 
     let delay = take_input();
-    rerun_print_temp(delay);
+    rerun_print_info(delay, 0);
 }
 
 /// Takes the input 'delay' from the user, returning '2' if none valid number is entered.
@@ -24,7 +26,7 @@ fn take_input() -> u64 {
         .expect("Failed to read from stdin");
 
     let trimmed = input_text.trim();
-    // Check if it's an integer and positive. Else returns 2.
+    // Check if it's an integer and positive. Else return 2.
     match trimmed.parse::<u64>() {
         Ok(i) if i > 0 => i, // If positive integer.
         _ => 2,
@@ -32,14 +34,23 @@ fn take_input() -> u64 {
 }
 
 /// Perpetually runs print_temp() with an interval of parameter 'delay'.
-fn rerun_print_temp(delay: u64) {
+fn rerun_print_info(delay: u64, cpu_tot_load_prev: usize) {
     print!("{esc}c", esc = 27 as char); // Clears the terminal.
+    let cpu_tot_load_prev_updated = print_info(delay, cpu_tot_load_prev);
+    //println!("cpu_tot_load_prev_updated is {}", cpu_tot_load_prev_updated);
+    thread::sleep(time::Duration::from_secs(delay));
+    rerun_print_info(delay, cpu_tot_load_prev_updated);
+}
+
+fn print_info(delay: u64, cpu_tot_load_prev: usize) -> usize{
     println!("============================");
     print_temp();
+    print_ram_use();
+    let cpu_tot_load = print_cpu_load(delay, cpu_tot_load_prev);
+    println!("CPU saved is {}", cpu_tot_load);
     println!("| Press Ctrl + C to abort  |");
     println!("============================");
-    thread::sleep(time::Duration::from_secs(delay));
-    rerun_print_temp(delay);
+    cpu_tot_load
 }
 
 /// Prints the GPU and CPU temperatures
@@ -74,4 +85,69 @@ fn print_temp() {
 
     println!("| GPU temperature: {}\u{00B0} C |", gpu_temp);
     println!("| CPU temperature: {}\u{00B0} C |", cpu_temp);
+}
+
+
+/// Prints available and total RAM
+fn print_ram_use() {
+    let mem_info = Command::new("cat")
+        .arg("/proc/meminfo")
+        .output()
+        .expect("Failed to execute command");
+
+    let mem_info_utf8 = str::from_utf8(&mem_info.stdout)
+        .ok()
+        .expect("Failed to convert mem info from byte string");
+    
+    let mut mem_info_utf8_split: Vec<&str> = mem_info_utf8.split(&[' ', '\n'][..]).collect();
+
+    mem_info_utf8_split.retain(|&x| x != "");  // Removes empty elements.
+
+    let mem_total = mem_info_utf8_split[1];
+    let mem_available = mem_info_utf8_split[7];
+
+    let mem_total_mb = mem_total.parse::<usize>().unwrap().rounded_div(1000);
+    let mem_available_mb = mem_available.parse::<usize>().unwrap().rounded_div(1000);
+
+    let formatted_ram = format!("{}/{} MB", mem_total_mb-mem_available_mb, mem_total_mb);  // TODO: Change to isize in case diff is slightly < 0?
+
+    println!("| RAM used:{:>15} |", formatted_ram);  // Sets correct amount of leading whitespace.
+}
+
+
+fn print_cpu_load(delay: u64, cpu_tot_load_prev: usize) -> usize{
+    let cpu_info = Command::new("cat")
+        .arg("/proc/stat")
+        .output()
+        .expect("Failed to execute command");
+
+    let cpu_info_utf8 = str::from_utf8(&cpu_info.stdout)
+        .ok()
+        .expect("Failed to convert cpu info from byte string");
+
+    let cpu_info_utf8_split: Vec<&str> = cpu_info_utf8.split(&[' ', '\n'][..]).collect();
+    
+    // TODO: Make it more universal, and not just for Raspberry 4 (probably different amount of CPUs. Lazy way: only check total CPU). Search for "cpu", save the string and number after (need to remove empty elements).
+    let cpu_tot_load = cpu_info_utf8_split[2].parse::<usize>().unwrap();
+    let cpu0_load = cpu_info_utf8_split[13].parse::<usize>().unwrap();
+    let index_cpu1 = cpu_info_utf8_split.iter().position(|&r| r == "cpu1").unwrap();
+    let cpu1_load = cpu_info_utf8_split[index_cpu1+1];
+    let index_cpu2 = cpu_info_utf8_split.iter().position(|&r| r == "cpu2").unwrap();
+    let cpu2_load = cpu_info_utf8_split[index_cpu2+1];
+    let index_cpu3 = cpu_info_utf8_split.iter().position(|&r| r == "cpu3").unwrap();
+    let cpu3_load = cpu_info_utf8_split[index_cpu3+1];
+
+    //println!("CPU INFO {:?}", cpu_info_utf8);
+    //println!("CPU INFO {:?}", cpu_info_utf8_split);
+    println!("CPU:  {}", cpu_tot_load);
+    println!("CPU0: {}", cpu0_load);
+    println!("CPU1: {}", cpu1_load);
+    println!("CPU2: {}", cpu2_load);
+    println!("CPU3: {}", cpu3_load);
+
+    println!("CPU prev is {}", cpu_tot_load_prev);
+
+    println!("CPU0 diff:  {}", cpu0_load - cpu_tot_load_prev);
+
+    cpu0_load
 }
