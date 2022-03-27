@@ -1,9 +1,9 @@
-/// CLI app which monitors temperature of GPU and CPU of Raspberry Pi running RaspberryOS 10.
+/// CLI app which monitors temperature of GPU and CPU of Raspberry Pi running Linux.
 /// Author: github.com/vicnil
 
 use std::io::Write;
 use std::process::Command;
-use std::{io, str, thread, time};
+use std::{io, fs, str, thread, time};
 
 fn main() {
     println!("========================================================================");
@@ -59,19 +59,15 @@ fn print_temp() {
     //  Takes second element of vector, i.e. the temperature.
     let gpu_temp = gpu_temp_str_splitted[1];
 
-    // Get CPU temperature.
-    let cpu_temp_output = Command::new("cat")
-        .arg("/sys/class/thermal/thermal_zone0/temp")
-        .output()
-        .expect("Failed to execute command");
     // Returns the CPU temperature multiplied by 1000.
-    let cpu_temp_str_1000 = str::from_utf8(&cpu_temp_output.stdout)
-        .ok()
-        .expect("Failed to convert from byte string");
-    // Takes first to third element, i.e. the CPU temperature multiplied by 10.
-    let cpu_temp_str_10 = &cpu_temp_str_1000[0..3];
-    let cpu_temp = cpu_temp_str_10.parse::<f32>().unwrap() / 10.0;
+    let cpu_temp_content = fs::read_to_string("/sys/class/thermal/thermal_zone0/temp")
+        .expect("Failed to read CPU temp");
+    let cpu_temp_1000_f32 = cpu_temp_content
+        .trim_end()
+        .parse::<f32>()
+        .expect("Could not convert CPU temp to f32");
+    let cpu_temp = cpu_temp_1000_f32 / 1000.0;
 
     println!("| GPU temperature: {}\u{00B0} C |", gpu_temp);
-    println!("| CPU temperature: {}\u{00B0} C |", cpu_temp);
+    println!("| CPU temperature: {:.1}\u{00B0} C |", cpu_temp);
 }
